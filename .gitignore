@@ -42,6 +42,11 @@ $RECYCLE.BIN/
 # Local environment variables
 .env
 
+# UI Bundle build artifacts
+**/uiBundles/**/dist/
+**/uiBundles/**/build/
+**/uiBundles/**/*.tsbuildinfo
+
 # Python Salesforce Functions
 **/__pycache__/
 **/.venv/

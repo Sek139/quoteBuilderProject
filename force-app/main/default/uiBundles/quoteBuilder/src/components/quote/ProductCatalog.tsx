@@ -4,15 +4,12 @@ import { Input, Skeleton } from '@/components/ui';
 import { ProductCard } from './ProductCard';
 import { useProducts } from '@/hooks/useProducts';
 
-const FAMILIES = ['All', 'CRM', 'Marketing', 'Analytics', 'Integration', 'Platform'];
+const CATEGORIES = ['All', 'CRM', 'Marketing', 'Analytics', 'Integration', 'Platform'];
 
 export function ProductCatalog() {
   const [search, setSearch] = useState('');
-  const [family, setFamily] = useState('All');
-  const { products, loading, error, refetch } = useProducts(search);
-
-  const visible =
-    family === 'All' ? products : products.filter(p => p.family === family);
+  const [category, setCategory] = useState('All');
+  const { products, loading, error, refetch } = useProducts(search, category);
 
   return (
     <div className="flex flex-col h-full gap-4">
@@ -20,26 +17,26 @@ export function ProductCatalog() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search products..."
+          placeholder="Search products or plans..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="pl-9"
         />
       </div>
 
-      {/* Family filter pills */}
+      {/* Category filter pills */}
       <div className="flex flex-wrap gap-1.5">
-        {FAMILIES.map(f => (
+        {CATEGORIES.map(c => (
           <button
-            key={f}
-            onClick={() => setFamily(f)}
+            key={c}
+            onClick={() => setCategory(c)}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-              family === f
+              category === c
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-white text-muted-foreground border-border hover:bg-muted'
             }`}
           >
-            {f}
+            {c}
           </button>
         ))}
       </div>
@@ -47,7 +44,7 @@ export function ProductCatalog() {
       {/* Results count */}
       {!loading && !error && (
         <p className="text-xs text-muted-foreground">
-          {visible.length} product{visible.length !== 1 ? 's' : ''}
+          {products.length} rate plan{products.length !== 1 ? 's' : ''}
         </p>
       )}
 
@@ -65,19 +62,19 @@ export function ProductCatalog() {
         </div>
       )}
 
-      {/* Product grid */}
+      {/* Product grid — one card per rate plan */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto flex-1 pb-2 pr-1">
         {loading
-          ? Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-40 rounded-lg" />
+          ? Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-44 rounded-lg" />
             ))
-          : visible.map(p => <ProductCard key={p.id} product={p} />)}
+          : products.map(item => <ProductCard key={item.ratePlanId} product={item} />)}
 
-        {!loading && !error && visible.length === 0 && (
+        {!loading && !error && products.length === 0 && (
           <div className="col-span-2 flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
             <Search className="w-8 h-8" />
-            <p className="text-sm">No products found</p>
-            <p className="text-xs">Try a different search or filter</p>
+            <p className="text-sm">No rate plans found</p>
+            <p className="text-xs">Try a different search or category</p>
           </div>
         )}
       </div>

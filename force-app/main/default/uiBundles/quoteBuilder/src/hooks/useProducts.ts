@@ -1,130 +1,97 @@
 import { useState, useEffect, useCallback } from 'react';
-import { executeGraphQL } from '@/api/graphqlClient';
-import type { SalesforceProduct } from '@/types';
+import { zuoraGet } from '@/api/zuoraClient';
+import type { ZuoraProduct, ZuoraCatalogItem } from '@/types';
 
 // ---------------------------------------------------------------------------
-// Mock data — used when running outside the Salesforce runtime (local dev)
+// Mock catalog — mirrors the shape of GET /v1/catalog/products from Zuora
 // ---------------------------------------------------------------------------
-const MOCK_PRODUCTS: SalesforceProduct[] = [
+const MOCK_PRODUCTS: ZuoraProduct[] = [
   {
-    id: 'prod-001',
-    pricebookEntryId: 'pbe-001',
-    name: 'Salesforce Sales Cloud',
-    description: 'CRM platform for sales teams to manage leads and opportunities.',
-    productCode: 'SC-ENT',
-    family: 'CRM',
-    unitPrice: 1500,
+    id: 'zuora-prod-001',
+    sku: 'SC-ENT',
+    name: 'Sales Cloud Enterprise',
+    description: 'CRM platform for sales teams to manage leads, opportunities, and pipelines at enterprise scale.',
+    category: 'CRM',
+    ratePlans: [
+      { id: 'zuora-rp-001-mo', name: 'Monthly', description: 'Billed monthly, cancel any time.', chargeType: 'Recurring', billingPeriod: 'Month', unitPrice: 1500 },
+      { id: 'zuora-rp-001-yr', name: 'Annual', description: 'Billed annually — save ~17%.', chargeType: 'Recurring', billingPeriod: 'Annual', unitPrice: 15000 },
+      { id: 'zuora-rp-001-impl', name: 'Implementation', description: 'One-time guided setup and onboarding package.', chargeType: 'OneTime', billingPeriod: 'OneTime', unitPrice: 2000 },
+    ],
   },
   {
-    id: 'prod-002',
-    pricebookEntryId: 'pbe-002',
-    name: 'Salesforce Service Cloud',
-    description: 'Customer service platform with case management and automation.',
-    productCode: 'SVC-ENT',
-    family: 'CRM',
-    unitPrice: 1200,
+    id: 'zuora-prod-002',
+    sku: 'SVC-PRO',
+    name: 'Service Cloud Pro',
+    description: 'Customer service platform with case management, automation, and self-service portals.',
+    category: 'CRM',
+    ratePlans: [
+      { id: 'zuora-rp-002-mo', name: 'Monthly', description: 'Billed monthly, cancel any time.', chargeType: 'Recurring', billingPeriod: 'Month', unitPrice: 1200 },
+      { id: 'zuora-rp-002-yr', name: 'Annual', description: 'Billed annually — save ~17%.', chargeType: 'Recurring', billingPeriod: 'Annual', unitPrice: 12000 },
+    ],
   },
   {
-    id: 'prod-003',
-    pricebookEntryId: 'pbe-003',
+    id: 'zuora-prod-003',
+    sku: 'MC-ENG',
     name: 'Marketing Cloud Engagement',
-    description: 'Email and mobile marketing automation at enterprise scale.',
-    productCode: 'MC-ENG',
-    family: 'Marketing',
-    unitPrice: 2000,
+    description: 'Email and mobile marketing automation platform built for enterprise scale and personalization.',
+    category: 'Marketing',
+    ratePlans: [
+      { id: 'zuora-rp-003-mo', name: 'Monthly', description: 'Billed monthly, cancel any time.', chargeType: 'Recurring', billingPeriod: 'Month', unitPrice: 2000 },
+      { id: 'zuora-rp-003-yr', name: 'Annual', description: 'Billed annually — save ~17%.', chargeType: 'Recurring', billingPeriod: 'Annual', unitPrice: 20000 },
+      { id: 'zuora-rp-003-onb', name: 'Onboarding Package', description: 'One-time campaign setup, template design, and team training.', chargeType: 'OneTime', billingPeriod: 'OneTime', unitPrice: 3000 },
+    ],
   },
   {
-    id: 'prod-004',
-    pricebookEntryId: 'pbe-004',
-    name: 'Tableau CRM',
-    description: 'AI-powered analytics and business intelligence platform.',
-    productCode: 'TAB-CRM',
-    family: 'Analytics',
-    unitPrice: 750,
+    id: 'zuora-prod-004',
+    sku: 'TAB-CRM',
+    name: 'Tableau Analytics',
+    description: 'AI-powered analytics and business intelligence deeply integrated with your Salesforce data.',
+    category: 'Analytics',
+    ratePlans: [
+      { id: 'zuora-rp-004-mo', name: 'Monthly', description: 'Billed monthly, cancel any time.', chargeType: 'Recurring', billingPeriod: 'Month', unitPrice: 750 },
+      { id: 'zuora-rp-004-yr', name: 'Annual', description: 'Billed annually — save ~17%.', chargeType: 'Recurring', billingPeriod: 'Annual', unitPrice: 7500 },
+    ],
   },
   {
-    id: 'prod-005',
-    pricebookEntryId: 'pbe-005',
+    id: 'zuora-prod-005',
+    sku: 'MUL-ANY',
     name: 'MuleSoft Anypoint Platform',
-    description: 'Integration platform for connecting apps, data, and devices.',
-    productCode: 'MUL-ANY',
-    family: 'Integration',
-    unitPrice: 3000,
+    description: 'Enterprise integration platform for connecting apps, data, and devices across any cloud or on-premise system.',
+    category: 'Integration',
+    ratePlans: [
+      { id: 'zuora-rp-005-mo', name: 'Monthly', description: 'Billed monthly, cancel any time.', chargeType: 'Recurring', billingPeriod: 'Month', unitPrice: 3000 },
+      { id: 'zuora-rp-005-yr', name: 'Annual', description: 'Billed annually — save ~17%.', chargeType: 'Recurring', billingPeriod: 'Annual', unitPrice: 30000 },
+      { id: 'zuora-rp-005-impl', name: 'Professional Services', description: 'One-time integration design, build, and go-live support.', chargeType: 'OneTime', billingPeriod: 'OneTime', unitPrice: 5000 },
+    ],
   },
   {
-    id: 'prod-006',
-    pricebookEntryId: 'pbe-006',
+    id: 'zuora-prod-006',
+    sku: 'PLT-ENT',
     name: 'Salesforce Platform',
-    description: 'Low-code platform for building custom business applications.',
-    productCode: 'PLT-ENT',
-    family: 'Platform',
-    unitPrice: 900,
+    description: 'Low-code platform for building custom business apps, automations, and workflows at scale.',
+    category: 'Platform',
+    ratePlans: [
+      { id: 'zuora-rp-006-mo', name: 'Monthly', description: 'Billed monthly, cancel any time.', chargeType: 'Recurring', billingPeriod: 'Month', unitPrice: 900 },
+      { id: 'zuora-rp-006-yr', name: 'Annual', description: 'Billed annually — save ~17%.', chargeType: 'Recurring', billingPeriod: 'Annual', unitPrice: 9000 },
+    ],
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Salesforce GraphQL query — runs when deployed to an org
-// ---------------------------------------------------------------------------
-const PRODUCTS_QUERY = `
-  query GetPricebookEntries {
-    uiapi {
-      query {
-        PricebookEntry(
-          where: { IsActive: { eq: true } }
-          orderBy: { Product2: { Name: { order: ASC } } }
-          first: 100
-        ) {
-          edges {
-            node {
-              Id
-              UnitPrice { value }
-              Product2 {
-                Id { value }
-                Name { value }
-                Description { value }
-                ProductCode { value }
-                Family { value }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-interface GraphQLProduct {
-  Id: string;
-  UnitPrice: { value: number };
-  Product2: {
-    Id: { value: string };
-    Name: { value: string };
-    Description: { value: string | null };
-    ProductCode: { value: string | null };
-    Family: { value: string | null };
-  };
-}
-
-interface GraphQLResponse {
-  uiapi: {
-    query: {
-      PricebookEntry: {
-        edges: { node: GraphQLProduct }[];
-      };
-    };
-  };
-}
-
-function mapGraphQLProduct(node: GraphQLProduct): SalesforceProduct {
-  return {
-    id: node.Product2.Id.value,
-    pricebookEntryId: node.Id,
-    name: node.Product2.Name.value,
-    description: node.Product2.Description.value ?? '',
-    productCode: node.Product2.ProductCode.value ?? '',
-    family: node.Product2.Family.value ?? 'Other',
-    unitPrice: node.UnitPrice.value,
-  };
+function flattenCatalog(products: ZuoraProduct[]): ZuoraCatalogItem[] {
+  return products.flatMap(p =>
+    p.ratePlans.map(rp => ({
+      ratePlanId: rp.id,
+      productId: p.id,
+      productName: p.name,
+      ratePlanName: rp.name,
+      description: rp.description || p.description,
+      sku: p.sku,
+      category: p.category,
+      chargeType: rp.chargeType,
+      billingPeriod: rp.billingPeriod,
+      unitPrice: rp.unitPrice,
+    }))
+  );
 }
 
 const isLocalDev = import.meta.env.DEV;
@@ -132,8 +99,8 @@ const isLocalDev = import.meta.env.DEV;
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
-export function useProducts(search: string) {
-  const [products, setProducts] = useState<SalesforceProduct[]>([]);
+export function useProducts(search: string, category: string) {
+  const [items, setItems] = useState<ZuoraCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,19 +109,14 @@ export function useProducts(search: string) {
     setError(null);
     try {
       if (isLocalDev) {
-        await new Promise(r => setTimeout(r, 400)); // simulate network
-        setProducts(MOCK_PRODUCTS);
+        await new Promise(r => setTimeout(r, 400));
+        setItems(flattenCatalog(MOCK_PRODUCTS));
       } else {
-        const data = await executeGraphQL<GraphQLResponse, Record<string, never>>(
-          PRODUCTS_QUERY
-        );
-        const mapped = data.uiapi.query.PricebookEntry.edges.map(e =>
-          mapGraphQLProduct(e.node)
-        );
-        setProducts(mapped);
+        const data = await zuoraGet<{ products: ZuoraProduct[] }>('/catalog');
+        setItems(flattenCatalog(data.products));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load products');
+      setError(err instanceof Error ? err.message : 'Failed to load catalog');
     } finally {
       setLoading(false);
     }
@@ -164,14 +126,17 @@ export function useProducts(search: string) {
     fetchProducts();
   }, [fetchProducts]);
 
-  const filtered = search.trim()
-    ? products.filter(
-        p =>
-          p.name.toLowerCase().includes(search.toLowerCase()) ||
-          p.productCode.toLowerCase().includes(search.toLowerCase()) ||
-          p.family.toLowerCase().includes(search.toLowerCase())
-      )
-    : products;
+  const filtered = items.filter(item => {
+    const matchesCategory = category === 'All' || item.category === category;
+    const q = search.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      item.productName.toLowerCase().includes(q) ||
+      item.ratePlanName.toLowerCase().includes(q) ||
+      item.sku.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q);
+    return matchesCategory && matchesSearch;
+  });
 
   return { products: filtered, loading, error, refetch: fetchProducts };
 }

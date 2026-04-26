@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { QuoteLineItem, QuoteMeta, SalesforceProduct } from '@/types';
+import type { QuoteLineItem, QuoteMeta, ZuoraCatalogItem } from '@/types';
 
 const TAX_RATE = 0.2;
 
@@ -15,15 +15,16 @@ interface QuoteStore {
   savedQuoteId: string | null;
 
   setMeta: (patch: Partial<QuoteMeta>) => void;
-  addProduct: (product: SalesforceProduct) => void;
+  addProduct: (item: ZuoraCatalogItem) => void;
   updateLine: (id: string, patch: Partial<Pick<QuoteLineItem, 'quantity' | 'discount'>>) => void;
   removeLine: (id: string) => void;
   setSaving: (saving: boolean) => void;
   setSavedQuoteId: (id: string | null) => void;
   clearQuote: () => void;
 
-  // Computed (derived)
   subtotal: () => number;
+  recurringSubtotal: () => number;
+  oneTimeSubtotal: () => number;
   discountAmount: () => number;
   tax: () => number;
   total: () => number;
@@ -32,6 +33,7 @@ interface QuoteStore {
 const DEFAULT_META: QuoteMeta = {
   quoteName: '',
   customerName: '',
+  zuoraAccountId: '',
   expirationDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
 };
 
@@ -45,23 +47,27 @@ export const useQuoteStore = create<QuoteStore>()(
 
       setMeta: patch => set(s => ({ meta: { ...s.meta, ...patch } })),
 
-      addProduct: product => {
+      addProduct: item => {
         const { lineItems } = get();
-        const existing = lineItems.find(l => l.productId === product.id);
+        // Dedup by ratePlanId — same plan on same product just bumps quantity
+        const existing = lineItems.find(l => l.ratePlanId === item.ratePlanId);
         if (existing) {
           set(s => ({
             lineItems: s.lineItems.map(l =>
-              l.productId === product.id ? { ...l, quantity: l.quantity + 1 } : l
+              l.ratePlanId === item.ratePlanId ? { ...l, quantity: l.quantity + 1 } : l
             ),
           }));
         } else {
           const newLine: QuoteLineItem = {
             id: crypto.randomUUID(),
-            pricebookEntryId: product.pricebookEntryId,
-            productId: product.id,
-            productName: product.name,
-            productCode: product.productCode,
-            unitPrice: product.unitPrice,
+            ratePlanId: item.ratePlanId,
+            productId: item.productId,
+            productName: item.productName,
+            ratePlanName: item.ratePlanName,
+            sku: item.sku,
+            chargeType: item.chargeType,
+            billingPeriod: item.billingPeriod,
+            unitPrice: item.unitPrice,
             quantity: 1,
             discount: 0,
           };
@@ -84,14 +90,26 @@ export const useQuoteStore = create<QuoteStore>()(
         set({ meta: DEFAULT_META, lineItems: [], savedQuoteId: null }),
 
       subtotal: () => get().lineItems.reduce((sum, l) => sum + lineTotal(l), 0),
+
+      recurringSubtotal: () =>
+        get()
+          .lineItems.filter(l => l.chargeType === 'Recurring')
+          .reduce((sum, l) => sum + lineTotal(l), 0),
+
+      oneTimeSubtotal: () =>
+        get()
+          .lineItems.filter(l => l.chargeType === 'OneTime')
+          .reduce((sum, l) => sum + lineTotal(l), 0),
+
       discountAmount: () =>
         get().lineItems.reduce(
           (sum, l) => sum + l.unitPrice * l.quantity * (l.discount / 100),
           0
         ),
+
       tax: () => get().subtotal() * TAX_RATE,
       total: () => get().subtotal() * (1 + TAX_RATE),
     }),
-    { name: 'sf-quote-draft' }
+    { name: 'zuora-quote-draft' }
   )
 );

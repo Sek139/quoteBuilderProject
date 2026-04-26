@@ -1,8 +1,8 @@
 # Quote Builder — Technical Documentation
 
-A Salesforce-native sales quoting application built with the Salesforce UI Bundle framework (React). Sales reps browse the product catalog, configure line items with quantity and discount, and save quotes directly to Salesforce Quote and QuoteLineItem records via a REST Apex controller.
+A Salesforce-native sales quoting application built with the Salesforce UI Bundle framework (React). Sales reps browse a Zuora product catalog, configure rate plan line items with quantity and discount, and create subscriptions directly in Zuora via a secure Apex proxy.
 
-> **Beta Notice:** UI Bundles are in open beta on Agentforce 360. Deployment to production orgs is not yet supported.
+> **Beta Notice:** UI Bundles are in open beta on Agentforce 360. Deployment to production orgs is not yet supported. The React app requires enabling **React Development with Agentforce Vibes and Salesforce Multi-Framework (Beta)** in org Setup before the UIBundle can be deployed.
 
 ---
 
@@ -15,53 +15,66 @@ A Salesforce-native sales quoting application built with the Salesforce UI Bundl
 5. [Prerequisites](#prerequisites)
 6. [Setup & Local Development](#setup--local-development)
 7. [Deploying to Salesforce](#deploying-to-salesforce)
-8. [Apex REST Controller](#apex-rest-controller)
+8. [Zuora Integration](#zuora-integration)
 9. [State Management](#state-management)
-10. [GraphQL Integration](#graphql-integration)
-11. [Testing](#testing)
-12. [Environment Modes](#environment-modes)
-13. [Known Limitations](#known-limitations)
+10. [Testing](#testing)
+11. [Environment Modes](#environment-modes)
+12. [Known Limitations](#known-limitations)
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        BROWSER / SFDC RUNTIME                    │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │                    React UI Bundle                          │  │
-│  │                                                             │  │
-│  │  ┌──────────────┐    ┌──────────────┐    ┌─────────────┐  │  │
-│  │  │ ProductCatalog│    │  QuoteLines  │    │QuoteSummary │  │  │
-│  │  │  + Search     │    │  + Qty/Disc  │    │  + Totals   │  │  │
-│  │  └──────┬───────┘    └──────┬───────┘    └──────┬──────┘  │  │
-│  │         │                   │                    │          │  │
-│  │         └───────────────────┼────────────────────┘          │  │
-│  │                             │                                │  │
-│  │                    ┌────────▼────────┐                       │  │
-│  │                    │  Zustand Store  │  (localStorage cache) │  │
-│  │                    │  quoteStore.ts  │                       │  │
-│  │                    └────────┬────────┘                       │  │
-│  │                             │                                │  │
-│  │           ┌─────────────────┼──────────────────┐            │  │
-│  │           │                 │                  │            │  │
-│  │  ┌────────▼──────┐  ┌───────▼──────┐          │            │  │
-│  │  │  useProducts  │  │ useSalesforce│          │            │  │
-│  │  │  (GraphQL)    │  │  (REST save) │          │            │  │
-│  │  └────────┬──────┘  └───────┬──────┘          │            │  │
-│  └───────────┼─────────────────┼──────────────────┘            │  │
-│              │                 │                                 │
-└──────────────┼─────────────────┼─────────────────────────────────┘
-               │                 │
-     ┌─────────▼──────┐  ┌───────▼─────────────────┐
-     │  Salesforce    │  │  Salesforce Apex REST    │
-     │  GraphQL API   │  │  /QuoteController/save   │
-     │  (PricebookEntry│  │                          │
-     │   Product2)    │  │  → Quote (SObject)       │
-     └────────────────┘  │  → QuoteLineItem[]       │
-                         └──────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         BROWSER / SFDC RUNTIME                        │
+│                                                                        │
+│  ┌─────────────────────────────────────────────────────────────────┐  │
+│  │                       React UI Bundle                            │  │
+│  │                                                                   │  │
+│  │  ┌───────────────┐    ┌──────────────┐    ┌──────────────────┐  │  │
+│  │  │ ProductCatalog │    │  QuoteLines  │    │  QuoteSummary    │  │  │
+│  │  │  Search+Filter │    │  Recurring   │    │  Recurring Total │  │  │
+│  │  │  per Rate Plan │    │  + One-Time  │    │  + One-Time Total│  │  │
+│  │  └──────┬────────┘    └──────┬───────┘    └────────┬─────────┘  │  │
+│  │         │                    │                      │             │  │
+│  │         └────────────────────┼──────────────────────┘             │  │
+│  │                              │                                     │  │
+│  │                     ┌────────▼────────┐                           │  │
+│  │                     │  Zustand Store  │ ← localStorage persisted  │  │
+│  │                     │  quoteStore.ts  │   (key: zuora-quote-draft) │  │
+│  │                     └────────┬────────┘                           │  │
+│  │                              │                                     │  │
+│  │           ┌──────────────────┼─────────────────┐                  │  │
+│  │           │                  │                 │                  │  │
+│  │  ┌────────▼──────┐  ┌────────▼────────┐        │                  │  │
+│  │  │  useProducts  │  │   useZuora      │        │                  │  │
+│  │  │  (catalog)    │  │  (subscription) │        │                  │  │
+│  │  └────────┬──────┘  └────────┬────────┘        │                  │  │
+│  │           │                  │                  │                  │  │
+│  │  ┌────────▼──────────────────▼───────────────┐  │                  │  │
+│  │  │              zuoraClient.ts               │  │                  │  │
+│  │  │    zuoraGet('/catalog')                   │  │                  │  │
+│  │  │    zuoraPost('/subscribe', payload)       │  │                  │  │
+│  │  └────────────────────┬──────────────────────┘  │                  │  │
+│  └───────────────────────┼─────────────────────────┘                  │  │
+│                          │                                             │
+└──────────────────────────┼─────────────────────────────────────────────┘
+                           │  /services/apexrest/ZuoraProxy/*
+                           ▼
+              ┌────────────────────────┐
+              │   ZuoraProxy.cls       │  Apex REST — injects Bearer token
+              │   ZuoraAuthService.cls │  OAuth2 client credentials
+              │   ZuoraConfig__mdt     │  CMT — stores clientId/secret/baseUrl
+              └────────────┬───────────┘
+                           │  HTTPS + Bearer token
+                           ▼
+              ┌────────────────────────┐
+              │      Zuora REST API    │
+              │  GET  /v1/catalog/     │
+              │       products         │
+              │  POST /v1/subscriptions│
+              └────────────────────────┘
 ```
 
 ---
@@ -77,9 +90,10 @@ A Salesforce-native sales quoting application built with the Salesforce UI Bundl
 | Component Library | shadcn/ui (Radix UI) | latest |
 | State Management | Zustand | 5 |
 | Routing | React Router | 7 |
-| Salesforce Data | @salesforce/sdk-data (GraphQL) | 1.120 |
 | Salesforce Platform | @salesforce/ui-bundle | 1.120 |
-| Backend | Apex REST Controller | API v59 |
+| Backend Proxy | Apex REST (ZuoraProxy) | API v66 |
+| Auth | Zuora OAuth 2.0 client credentials | — |
+| Config | Custom Metadata Type (ZuoraConfig__mdt) | — |
 | Unit Testing | Vitest + Testing Library | latest |
 | E2E Testing | Playwright | latest |
 | Code Quality | ESLint + Prettier + Husky | latest |
@@ -90,96 +104,117 @@ A Salesforce-native sales quoting application built with the Salesforce UI Bundl
 
 ```
 quoteBuilderProject/
+├── .forceignore                         Excludes QuoteController + UIBundle (until beta enabled)
 ├── sfdx-project.json                    Salesforce DX config (API v66, no namespace)
 ├── config/
 │   └── project-scratch-def.json         Scratch org definition (Developer edition)
-├── scripts/
-│   ├── apex/hello.apex                  Sample Apex script
-│   └── soql/account.soql                Sample SOQL query
 └── force-app/main/default/
     ├── classes/
-    │   └── QuoteController.cls          Apex REST endpoint — creates Quote + QuoteLineItems
+    │   ├── ZuoraProxy.cls               Apex REST proxy → Zuora catalog + subscription
+    │   ├── ZuoraAuthService.cls         OAuth2 token fetch + in-request cache
+    │   └── QuoteController.cls          Legacy Salesforce quotes (excluded from deploy)
+    ├── objects/
+    │   └── ZuoraConfig__mdt/            Custom Metadata Type definition
+    │       ├── ZuoraConfig__mdt.object-meta.xml
+    │       └── fields/
+    │           ├── ClientId__c.field-meta.xml
+    │           ├── ClientSecret__c.field-meta.xml
+    │           └── BaseUrl__c.field-meta.xml
+    ├── customMetadata/
+    │   └── ZuoraConfig.Default.md-meta.xml  Default record (sandbox URL + placeholder creds)
     └── uiBundles/
         └── quoteBuilder/                React application root
-            ├── ui-bundle.json           UI Bundle metadata
-            ├── vite.config.ts           Bundler + dev server config
-            ├── vitest.config.ts         Unit test config (85% coverage threshold)
-            ├── playwright.config.ts     E2E test config
+            ├── ui-bundle.json
+            ├── vite.config.ts
+            ├── vitest.config.ts         85% coverage threshold enforced
+            ├── playwright.config.ts
             └── src/
                 ├── app.tsx              Router bootstrap, StrictMode
                 ├── appLayout.tsx        App shell (header + outlet)
                 ├── routes.tsx           Route definitions
                 ├── api/
-                │   └── graphqlClient.ts Salesforce GraphQL wrapper
+                │   └── zuoraClient.ts   zuoraGet / zuoraPost → /services/apexrest/ZuoraProxy/*
                 ├── stores/
-                │   └── quoteStore.ts    Zustand store with localStorage persistence
+                │   └── quoteStore.ts    Zustand store (persisted: zuora-quote-draft)
                 ├── hooks/
-                │   ├── useProducts.ts   Fetches PricebookEntry via GraphQL (mocked in dev)
-                │   └── useSalesforce.ts POSTs quote to Apex REST endpoint
-                ├── types/index.ts       Shared TypeScript interfaces
+                │   ├── useProducts.ts   Zuora catalog → ZuoraCatalogItem[] (mocked in dev)
+                │   └── useZuora.ts      Creates Zuora subscription via Apex proxy
+                ├── types/index.ts       ZuoraProduct, ZuoraCatalogItem, QuoteLineItem, etc.
                 ├── pages/
-                │   ├── QuoteBuilder.tsx Main two-column layout page
+                │   ├── QuoteBuilder.tsx Two-column layout page
                 │   └── NotFound.tsx     404 fallback
                 └── components/
                     ├── quote/
-                    │   ├── ProductCatalog.tsx  Search + family filter + product grid
-                    │   ├── ProductCard.tsx     Single product card with Add button
-                    │   ├── QuoteHeader.tsx     Quote name, customer, expiration date
-                    │   ├── QuoteLines.tsx      Line item table (qty, discount, delete)
-                    │   └── QuoteSummary.tsx    Totals + Save/Clear actions
+                    │   ├── ProductCatalog.tsx  Search + category filter (one card per rate plan)
+                    │   ├── ProductCard.tsx     Category + billing period badges, price suffix
+                    │   ├── QuoteHeader.tsx     Quote name, customer, Zuora Account ID, expiry
+                    │   ├── QuoteLines.tsx      Grouped tables: Recurring / One-Time
+                    │   └── QuoteSummary.tsx    Split totals + Create Subscription button
                     ├── layouts/card-layout.tsx
                     ├── alerts/status-alert.tsx
-                    └── ui/                    shadcn/ui primitives (button, table, etc.)
+                    └── ui/                    shadcn/ui primitives
 ```
 
 ---
 
 ## Data Flow
 
-### Browsing & Adding Products
+### Browsing the Zuora Catalog
 
 ```
-User types in search box
-    → ProductCatalog filters locally (name, code, family)
-    → User clicks "Add" on a ProductCard
-    → quoteStore.addProduct()
-        → If product already in quote: increments quantity
-        → Else: appends new QuoteLineItem
-    → QuoteLines table re-renders reactively
+Component mount → useProducts(search, category)
+    DEV mode  → 6 mock ZuoraProducts × 2–3 rate plans each (400ms delay)
+    PROD mode → GET /services/apexrest/ZuoraProxy/catalog
+                    → ZuoraProxy: GET /v1/catalog/products (Bearer token)
+                    → returns { products: ZuoraProduct[] }
+                → flattenCatalog(): one ZuoraCatalogItem per rate plan
+                → filtered by search + category in the hook
+
+ZuoraProduct hierarchy:
+  Product (id, sku, name, category)
+    └── ProductRatePlan[] (id, name, chargeType, billingPeriod, unitPrice)
+          Monthly  → chargeType: "Recurring", billingPeriod: "Month"
+          Annual   → chargeType: "Recurring", billingPeriod: "Annual"
+          Setup    → chargeType: "OneTime",   billingPeriod: "OneTime"
 ```
 
-### Quote Calculations (computed on every access)
+### Adding Items & Quote Calculations
 
 ```
-quoteStore.subtotal()  = Σ (unitPrice × quantity × (1 − discount/100))
-quoteStore.discountAmount() = Σ (unitPrice × quantity) − subtotal
-quoteStore.tax()       = subtotal × 0.20   (20% fixed rate)
-quoteStore.total()     = subtotal + tax
+User clicks "Add" on a ProductCard (ZuoraCatalogItem)
+    → quoteStore.addProduct(item)
+        → Dedup key: ratePlanId (not productId)
+        → Same rate plan: increments quantity
+        → New rate plan: appends QuoteLineItem
+
+Computed totals (recalculated on every access):
+  recurringSubtotal() = Σ lineTotal(l) where l.chargeType === "Recurring"
+  oneTimeSubtotal()   = Σ lineTotal(l) where l.chargeType === "OneTime"
+  subtotal()          = recurringSubtotal + oneTimeSubtotal
+  discountAmount()    = Σ (unitPrice × qty × discount/100)
+  tax()               = subtotal × 0.20
+  total()             = subtotal × 1.20
 ```
 
-### Saving a Quote
+### Creating a Zuora Subscription
 
 ```
-User clicks "Save to Salesforce"
-    → useSalesforce.saveQuote()
-    → Reads state from quoteStore
-    → Builds JSON payload
-    → POST /services/apexrest/QuoteController/saveQuote
-        → Apex: queries standard Pricebook2
-        → Apex: INSERT Quote { Status: "Draft" }
-        → Apex: bulk INSERT QuoteLineItem[]
-        → Returns { quoteId, success, message }
-    → QuoteSummary displays saved quote ID
-```
-
-### Product Data Fetching
-
-```
-Component mount → useProducts hook
-    DEV mode  → returns 6 mock Salesforce products (400ms simulated delay)
-    PROD mode → GraphQL query to Salesforce
-                  PricebookEntry(where: { IsActive: { eq: true } }, first: 100)
-                  → maps to SalesforceProduct[]
+User clicks "Create Subscription"
+    → useZuora.saveSubscription()
+    → Reads state from quoteStore (meta + lineItems)
+    → Builds payload:
+        {
+          accountKey, termType: "TERMED",
+          termStartDate, termEndDate,
+          subscribeToRatePlans: [
+            { productRatePlanId, chargeOverrides: [{ quantity, price }] }
+          ]
+        }
+    → POST /services/apexrest/ZuoraProxy/subscribe
+        → ZuoraProxy: fetches token via ZuoraAuthService
+        → ZuoraProxy: POST /v1/subscriptions (Bearer token)
+        → Returns { subscriptionId, success, message }
+    → QuoteSummary displays subscriptionId
 ```
 
 ---
@@ -196,7 +231,8 @@ Component mount → useProducts hook
 
 **Required VS Code Extensions:**
 - Salesforce Extension Pack
-- Set `salesforcedx-vscode-apex.java.home` to your JDK path (e.g. `C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot`)
+- Set `salesforcedx-vscode-apex.java.home` to your JDK path:
+  `C:\Program Files\Eclipse Adoptium\jdk-25.0.2.10-hotspot`
 
 ---
 
@@ -223,181 +259,179 @@ npm run dev
 # App available at http://localhost:5173
 ```
 
-In dev mode the app runs with mock product data — no Salesforce org connection is needed.
-
-### 4. (Optional) Generate GraphQL types from a connected org
-
-```bash
-# Fetch schema
-npm run graphql:schema
-
-# Generate TypeScript types
-npm run graphql:codegen
-```
+In dev mode the app runs entirely on mock Zuora data — no org, no Zuora account needed.
 
 ---
 
 ## Deploying to Salesforce
 
-### Create a scratch org
+Deployment is **two phases** because the UIBundle requires a beta feature to be manually enabled in the org before it can be pushed.
+
+### Phase 1 — Apex + Custom Metadata (works immediately)
 
 ```bash
 # From project root
+npm run build   # builds the React bundle (required before deploy)
+
+sf project deploy start --target-org react \
+  --source-dir force-app/main/default/classes \
+  --source-dir force-app/main/default/objects \
+  --source-dir force-app/main/default/customMetadata
+```
+
+This deploys: `ZuoraProxy`, `ZuoraAuthService`, `ZuoraConfig__mdt` type + fields + the `Default` record.
+
+### Phase 2 — UIBundle (React app)
+
+**Step 1:** Enable the beta in the org:
+
+```bash
+sf org open --target-org react
+```
+
+Navigate to **Setup → Apps → React Development with Agentforce Vibes and Salesforce Multi-Framework (Beta)** and enable it.
+
+**Step 2:** Edit [.forceignore](.forceignore) and remove these two lines:
+
+```
+**/uiBundles/**
+**/*.uibundle-meta.xml
+```
+
+**Step 3:** Build and deploy:
+
+```bash
+cd force-app/main/default/uiBundles/quoteBuilder
+npm run build
+
+cd ../../../../..   # back to project root
+sf project deploy start --target-org react
+```
+
+### Other useful commands
+
+```bash
+# List configured orgs
+sf org list
+
+# Open scratch org in browser
+sf org open --target-org react
+
+# Create a new scratch org (if needed)
 sf org create scratch \
   --definition-file config/project-scratch-def.json \
-  --alias quote-builder-dev \
+  --alias my-scratch \
   --duration-days 30
-```
-
-### Push source to org
-
-```bash
-sf project deploy start --target-org quote-builder-dev
-```
-
-### Open the org
-
-```bash
-sf org open --target-org quote-builder-dev
-```
-
-### Assign permissions (if needed)
-
-```bash
-sf org assign permset --name <PermSetName> --target-org quote-builder-dev
-```
-
-### Run Apex scripts
-
-```bash
-sf apex run --file scripts/apex/hello.apex --target-org quote-builder-dev
 ```
 
 ---
 
-## Apex REST Controller
+## Zuora Integration
 
-**Class:** `force-app/main/default/classes/QuoteController.cls`
-**Endpoint:** `POST /services/apexrest/QuoteController/saveQuote`
-**API Version:** 59.0
+### Custom Metadata Type — `ZuoraConfig__mdt`
 
-### Request payload
+Credentials and the base URL are stored in a Custom Metadata Type so they are deployable as source and never hard-coded.
+
+| Field | Purpose | Default record value |
+|---|---|---|
+| `ClientId__c` | Zuora OAuth client ID | `REPLACE_WITH_YOUR_CLIENT_ID` |
+| `ClientSecret__c` | Zuora OAuth client secret | `REPLACE_WITH_YOUR_CLIENT_SECRET` |
+| `BaseUrl__c` | Zuora REST base URL | `https://rest.apisandbox.zuora.com` |
+
+Update the values in [customMetadata/ZuoraConfig.Default.md-meta.xml](force-app/main/default/customMetadata/ZuoraConfig.Default.md-meta.xml) before deploying to a real org. For production use `https://rest.zuora.com`.
+
+### `ZuoraAuthService.cls`
+
+Fetches an OAuth 2.0 Bearer token using client credentials flow (`POST /oauth/token`). Token is cached in a static variable with a 60-second safety margin before expiry. All callouts in the same Apex transaction reuse the cached token.
+
+### `ZuoraProxy.cls` — REST Endpoints
+
+**Endpoint:** `/services/apexrest/ZuoraProxy/*`
+
+#### `GET /ZuoraProxy/catalog`
+
+Proxies `GET /v1/catalog/products?pageSize=100` from Zuora. Returns the full product + rate plan catalog as-is. The frontend's `useProducts` hook calls this in production.
+
+#### `POST /ZuoraProxy/subscribe`
+
+**Request body:**
 
 ```json
 {
-  "quoteName": "Q-2026-001",
+  "accountKey": "A00001234",
+  "quoteName": "Acme Corp Q2-2026",
   "customerName": "Acme Corp",
-  "expirationDate": "2026-06-30",
-  "subtotal": 15000.00,
-  "discountAmount": 1500.00,
-  "tax": 2700.00,
-  "total": 16200.00,
-  "lineItems": [
+  "termType": "TERMED",
+  "termStartDate": "2026-04-26",
+  "termEndDate": "2026-10-26",
+  "subscribeToRatePlans": [
     {
-      "pricebookEntryId": "01u...",
-      "productId": "01t...",
-      "productName": "Sales Cloud",
-      "quantity": 5,
-      "unitPrice": 3000.00,
-      "discount": 10,
-      "totalPrice": 13500.00
+      "productRatePlanId": "zuora-rp-001-mo",
+      "chargeOverrides": [{ "quantity": 5, "price": 1500.00 }]
     }
-  ]
+  ],
+  "subtotal": 7500.00,
+  "discountAmount": 0,
+  "tax": 1500.00,
+  "total": 9000.00
 }
 ```
 
-### Response payload
+**Response:**
 
 ```json
 {
-  "quoteId": "0Q0...",
+  "subscriptionId": "SUB-00001234",
   "success": true,
-  "message": "Quote saved successfully"
+  "message": "Subscription created successfully"
 }
 ```
 
-### What the controller does
+### Zuora Data Model vs Salesforce Native
 
-1. Deserializes the JSON body into typed inner classes (`QuoteInput`, `LineItemInput`)
-2. Queries for the standard `Pricebook2` record
-3. Inserts a `Quote` SObject (`Status: "Draft"`)
-4. Bulk-inserts `QuoteLineItem[]` linked to the new quote
-5. Returns a `QuoteResult` as JSON
+| Salesforce (legacy) | Zuora (current) |
+|---|---|
+| `PricebookEntry` | `ProductRatePlan` |
+| `Product2` | `Product` |
+| Single `unitPrice` | `ProductRatePlanCharge[]` per billing period |
+| `Quote` SObject | `Subscription` |
+| `QuoteLineItem` SObject | `SubscriptionRatePlan` |
 
 ---
 
 ## State Management
 
-**Store:** `src/stores/quoteStore.ts` — Zustand with `persist` middleware
-
-**Persisted key:** `sf-quote-draft` (browser localStorage)
+**Store:** [src/stores/quoteStore.ts](force-app/main/default/uiBundles/quoteBuilder/src/stores/quoteStore.ts)
+**Persisted key:** `zuora-quote-draft` (browser localStorage)
 
 ```typescript
 interface QuoteStore {
-  // State
-  meta: QuoteMeta;           // quoteName, customerName, expirationDate
+  meta: QuoteMeta;        // quoteName, customerName, zuoraAccountId, expirationDate
   lineItems: QuoteLineItem[];
   isSaving: boolean;
-  savedQuoteId: string | null;
+  savedQuoteId: string | null;   // stores subscriptionId after save
 
   // Actions
-  setMeta(patch: Partial<QuoteMeta>): void;
-  addProduct(product: SalesforceProduct): void;
-  updateLine(id: string, patch: { quantity?: number; discount?: number }): void;
-  removeLine(id: string): void;
+  addProduct(item: ZuoraCatalogItem): void;   // dedup by ratePlanId
+  updateLine(id, patch): void;
+  removeLine(id): void;
   clearQuote(): void;
 
   // Computed
   subtotal(): number;
+  recurringSubtotal(): number;   // Σ Recurring lines only
+  oneTimeSubtotal(): number;     // Σ OneTime lines only
   discountAmount(): number;
-  tax(): number;       // fixed 20%
-  total(): number;
+  tax(): number;                 // fixed 20%
+  total(): number;               // subtotal × 1.20
 }
 ```
 
 **Key behaviors:**
-- Adding the same product twice increments quantity rather than duplicating
-- Quantity is clamped to 1–9999
-- Discount is clamped to 0–100%
+- Dedup key is `ratePlanId` — same product can appear multiple times with different rate plans (e.g. Monthly + Annual)
+- Adding the same rate plan twice increments quantity
+- Quantity clamped 1–9999, discount clamped 0–100%
 - Draft survives page refresh via localStorage
-
----
-
-## GraphQL Integration
-
-Product data is fetched via Salesforce's GraphQL API using `@salesforce/sdk-data`.
-
-**Client:** `src/api/graphqlClient.ts` — wraps `createDataSDK().graphql()` with centralized error handling.
-
-**Query** (executed in `useProducts.ts`):
-
-```graphql
-query GetPricebookEntries {
-  uiapi {
-    query {
-      PricebookEntry(
-        where: { IsActive: { eq: true } }
-        orderBy: { Product2: { Name: { order: ASC } } }
-        first: 100
-      ) {
-        edges {
-          node {
-            Id
-            UnitPrice { value }
-            Product2 {
-              Id { value }
-              Name { value }
-              Description { value }
-              ProductCode { value }
-              Family { value }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
 
 ---
 
@@ -410,7 +444,7 @@ cd force-app/main/default/uiBundles/quoteBuilder
 npm run test
 ```
 
-Coverage thresholds (enforced): **85%** lines, functions, branches, statements.
+Coverage thresholds enforced: **85%** lines, functions, branches, statements.
 
 ### E2E tests (Playwright)
 
@@ -423,7 +457,7 @@ npm run test:e2e
 ```bash
 # From project root
 npm run lint      # ESLint on all JS/TS
-npm run prettier  # Format all files
+npm run prettier  # Prettier on all files
 ```
 
 A Husky pre-commit hook runs `lint-staged` automatically on every commit.
@@ -432,22 +466,21 @@ A Husky pre-commit hook runs `lint-staged` automatically on every commit.
 
 ## Environment Modes
 
-The app auto-detects its environment via `import.meta.env.DEV`:
+Controlled by `import.meta.env.DEV` — no config files need changing when switching.
 
 | Mode | Product Data | Save Behavior |
 |---|---|---|
-| **Development** (`npm run dev`) | 6 hardcoded mock products, 400ms delay | Simulated 800ms delay, returns mock quote ID |
-| **Production** (deployed to org) | Live GraphQL query against Salesforce | Real POST to Apex REST, creates Salesforce records |
-
-No configuration files or environment variables need to be changed when switching modes.
+| **Development** (`npm run dev`) | 6 mock Zuora products × 2–3 rate plans, 400ms delay | 800ms simulated delay, returns `SUB-MOCK-{timestamp}` |
+| **Production** (deployed to org) | Live `GET /v1/catalog/products` via ZuoraProxy | Real `POST /v1/subscriptions` via ZuoraProxy, returns Zuora subscription ID |
 
 ---
 
 ## Known Limitations
 
+- **UIBundle beta required:** The React app cannot be deployed until "React Development with Agentforce Vibes and Salesforce Multi-Framework (Beta)" is enabled in org Setup
 - **Beta only:** UI Bundles cannot be deployed to production Salesforce orgs
-- **Scratch org lifespan:** Scratch orgs expire after 30 days
-- **No Lightning App Builder support:** React UI Bundles cannot be placed via drag-and-drop in Lightning pages
-- **Tax rate hardcoded:** 20% rate is a constant in `quoteStore.ts` — not configurable at runtime
-- **No quote editing:** Saved quotes cannot be reloaded into the builder for amendment
-- **Standard pricebook only:** The Apex controller always queries the single standard `Pricebook2`
+- **Scratch org lifespan:** Scratch orgs expire after 30 days (current `react` org expires 2026-05-25)
+- **Tax rate hardcoded:** 20% is a constant in `quoteStore.ts` — not configurable at runtime
+- **Zuora credentials in CMT:** `ClientSecret__c` is stored as plain Text — use Named Credentials or an encrypted field for production
+- **No quote editing:** Saved subscriptions cannot be reloaded into the builder for amendment
+- **No multi-currency:** Pricing uses a single currency; Zuora multi-currency support not wired up

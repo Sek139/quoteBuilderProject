@@ -5,7 +5,7 @@ export function QuoteHeader() {
   const { meta, setMeta } = useQuoteStore();
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-muted/40 rounded-lg border">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-muted/40 rounded-lg border">
       <div className="flex flex-col gap-1">
         <Label htmlFor="quoteName" className="text-xs font-medium">
           Quote Name <span className="text-destructive">*</span>
@@ -28,6 +28,18 @@ export function QuoteHeader() {
           value={meta.customerName}
           onChange={e => setMeta({ customerName: e.target.value })}
           className="h-8 text-sm"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="zuoraAccountId" className="text-xs font-medium">
+          Zuora Account ID
+        </Label>
+        <Input
+          id="zuoraAccountId"
+          placeholder="e.g. A00001234"
+          value={meta.zuoraAccountId}
+          onChange={e => setMeta({ zuoraAccountId: e.target.value })}
+          className="h-8 text-sm font-mono"
         />
       </div>
       <div className="flex flex-col gap-1">

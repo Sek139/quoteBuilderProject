@@ -2,30 +2,43 @@ import { useState } from 'react';
 import { Save, CheckCircle, Loader2, Trash2 } from 'lucide-react';
 import { Button, Separator } from '@/components/ui';
 import { useQuoteStore } from '@/stores/quoteStore';
-import { useSalesforce } from '@/hooks/useSalesforce';
+import { useZuora } from '@/hooks/useZuora';
 
 function fmt(n: number) {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
 export function QuoteSummary() {
-  const { lineItems, subtotal, discountAmount, tax, total, isSaving, savedQuoteId, meta, clearQuote } =
-    useQuoteStore();
-  const { saveQuote } = useSalesforce();
+  const {
+    lineItems,
+    subtotal,
+    recurringSubtotal,
+    oneTimeSubtotal,
+    discountAmount,
+    tax,
+    total,
+    isSaving,
+    savedQuoteId,
+    meta,
+    clearQuote,
+  } = useQuoteStore();
+  const { saveSubscription } = useZuora();
   const [error, setError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
 
+  const hasRecurring = lineItems.some(l => l.chargeType === 'Recurring');
+  const hasOneTime = lineItems.some(l => l.chargeType === 'OneTime');
   const canSave = lineItems.length > 0 && meta.quoteName.trim().length > 0 && !isSaving;
 
   async function handleSave() {
     setError(null);
     try {
-      const result = await saveQuote();
+      const result = await saveSubscription();
       if (result.success) {
         setJustSaved(true);
         setTimeout(() => setJustSaved(false), 3000);
       } else {
-        setError(result.message ?? 'Save failed');
+        setError(result.message ?? 'Failed to create subscription');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error');
@@ -34,23 +47,45 @@ export function QuoteSummary() {
 
   return (
     <div className="flex flex-col gap-3 p-4 bg-muted/40 rounded-lg border">
-      {/* Line totals */}
       <div className="flex flex-col gap-1.5 text-sm">
-        <div className="flex justify-between text-muted-foreground">
-          <span>Subtotal ({lineItems.length} item{lineItems.length !== 1 ? 's' : ''})</span>
-          <span>{fmt(subtotal())}</span>
-        </div>
+        {/* Split subtotals when both types present */}
+        {hasRecurring && hasOneTime ? (
+          <>
+            <div className="flex justify-between text-muted-foreground">
+              <span>Monthly Recurring</span>
+              <span>{fmt(recurringSubtotal())}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>One-Time Fees</span>
+              <span>{fmt(oneTimeSubtotal())}</span>
+            </div>
+            <Separator />
+            <div className="flex justify-between text-muted-foreground">
+              <span>Subtotal ({lineItems.length} item{lineItems.length !== 1 ? 's' : ''})</span>
+              <span>{fmt(subtotal())}</span>
+            </div>
+          </>
+        ) : (
+          <div className="flex justify-between text-muted-foreground">
+            <span>Subtotal ({lineItems.length} item{lineItems.length !== 1 ? 's' : ''})</span>
+            <span>{fmt(subtotal())}</span>
+          </div>
+        )}
+
         {discountAmount() > 0 && (
           <div className="flex justify-between text-green-600">
             <span>Discount</span>
             <span>-{fmt(discountAmount())}</span>
           </div>
         )}
+
         <div className="flex justify-between text-muted-foreground">
           <span>Tax (20%)</span>
           <span>{fmt(tax())}</span>
         </div>
+
         <Separator />
+
         <div className="flex justify-between font-bold text-base">
           <span>Total</span>
           <span>{fmt(total())}</span>
@@ -69,17 +104,13 @@ export function QuoteSummary() {
       {savedQuoteId && (
         <div className="flex items-center gap-1.5 text-xs text-green-600">
           <CheckCircle className="w-3.5 h-3.5" />
-          Saved as {savedQuoteId}
+          Subscription: {savedQuoteId}
         </div>
       )}
 
       {/* Actions */}
       <div className="flex gap-2">
-        <Button
-          className="flex-1 gap-2"
-          onClick={handleSave}
-          disabled={!canSave}
-        >
+        <Button className="flex-1 gap-2" onClick={handleSave} disabled={!canSave}>
           {isSaving ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : justSaved ? (
@@ -87,7 +118,7 @@ export function QuoteSummary() {
           ) : (
             <Save className="w-4 h-4" />
           )}
-          {isSaving ? 'Saving…' : justSaved ? 'Saved!' : 'Save to Salesforce'}
+          {isSaving ? 'Creating…' : justSaved ? 'Created!' : 'Create Subscription'}
         </Button>
         {lineItems.length > 0 && (
           <Button

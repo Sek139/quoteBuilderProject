@@ -12,3 +12,12 @@ package.xml
 **/__tests__/**
 
 node_modules/
+
+# Superseded by ZuoraProxy — also requires Quotes feature not enabled on this scratch org
+**/QuoteController.cls
+**/QuoteController.cls-meta.xml
+
+# UIBundle requires the Agentforce Multi-Framework beta to be enabled in Setup first.
+# Remove these two lines after enabling it, then re-run the deploy.
+**/uiBundles/**
+**/*.uibundle-meta.xml

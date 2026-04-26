@@ -4,6 +4,8 @@
 
 Quote Builder is a web application embedded in Salesforce that allows sales representatives to assemble subscription quotes from a Zuora product catalog, configure pricing, and submit them as live Zuora subscriptions — all without leaving the Salesforce interface.
 
+The application is built with **React** (via Salesforce UI Bundles) rather than the standard Lightning Web Components (LWC) framework. This choice was made deliberately: the Zuora integration, the complex grouped pricing UI, and the need for a fully custom design system made React a better fit than LWC for this use case. The trade-off is that the app cannot yet be placed in Lightning App Builder pages and cannot be deployed to production orgs until the UI Bundle beta goes GA.
+
 ---
 
 ## Who Is This For?

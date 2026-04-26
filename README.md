@@ -100,6 +100,43 @@ A Salesforce-native sales quoting application built with the Salesforce UI Bundl
 
 ---
 
+## Framework Decision: React (UI Bundle) vs LWC
+
+This project uses React via Salesforce UI Bundles rather than Lightning Web Components (LWC). The table below explains the trade-offs in the context of what this application needs to do.
+
+| Capability | LWC | React (this project) |
+|---|---|---|
+| **Deploy to production orgs** | Yes | No — beta only |
+| **Lightning App Builder drag-drop** | Yes | No |
+| **Salesforce wire adapters / LDS** | Native | Not available |
+| **External API integration (Zuora)** | Possible but verbose | Clean — any npm fetch/client |
+| **Complex UI (grouped tables, split totals, billing badges)** | Achievable with effort | Straightforward with shadcn/Radix |
+| **TypeScript** | Partial support | First-class |
+| **npm ecosystem (Zustand, Tailwind, Radix UI…)** | Not available | Full access |
+| **Custom design system** | Constrained by SLDS | Total freedom |
+| **State management across components** | Component props / pub-sub | Zustand store with localStorage persistence |
+| **Full SPA routing** | Not built-in | React Router 7 |
+
+### Why React was the right call here
+
+Three requirements made LWC a poor fit for this project:
+
+1. **Zuora as the data source.** Zuora is an external system with its own OAuth flow and REST API. LWC's `@wire` adapters and Lightning Data Service are built for Salesforce data. Calling Zuora cleanly from LWC would mean writing the same Apex proxy layer anyway, with no benefit on the frontend side. React's `fetch`-based `zuoraClient.ts` is straightforward.
+
+2. **The pricing UI complexity.** The quote builder has two grouped line item tables (Recurring / One-Time), per-row inline editing, real-time computed totals split by charge type, and billing period badges. Building this in LWC with SLDS components would require significant custom styling and inter-component state synchronisation. In React, Zustand + Tailwind + shadcn made it direct.
+
+3. **TypeScript-first development.** The Zuora catalog has a nested type hierarchy (`ZuoraProduct → ZuoraRatePlan → ZuoraCatalogItem`). TypeScript's strict mode, path aliases, and full IDE inference were essential for keeping the mapping code safe. LWC's TypeScript story is limited by comparison.
+
+### What is given up
+
+- The UIBundle cannot be placed in Lightning pages via App Builder.
+- Deployment to production orgs is blocked until the beta goes GA.
+- Standard Salesforce UI patterns (SLDS tokens, Lightning base components) are not used — the design system is fully custom.
+
+If this application were Salesforce-data-only (querying Accounts, Opportunities, standard objects) with a simple form-based UI and a production deployment requirement, **LWC would be the better choice**.
+
+---
+
 ## Project Structure
 
 ```
